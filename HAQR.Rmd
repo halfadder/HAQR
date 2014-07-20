@@ -1,0 +1,137 @@
+---
+title: "Human Activity Quality Recognition"
+output: html_document
+---
+
+### Summary
+
+This document outlines the procedures that were followed to generate a Random Forest used to predict how well a group of individuals performed a weight lifting exercise. The original dataset and more information on the experiment are available [here](http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises).  
+
+### Needed Libraries
+```{r, message = FALSE}
+library(caret)
+library(rpart)
+library(randomForest)
+library(lsr)
+library(rattle)
+```
+
+### Load the Data and Process the Training and Testing Sets
+
+The dataset was loaded and several columns that did not appear to be useful for prediction were truncated. Also, NAs were generally omitted from predictive models by dropping the columns that mostly contained only NAs.
+
+```{r Load and process the data, warning = FALSE}
+training <- read.csv("pml-training.csv")
+testing <- read.csv("pml-testing.csv")
+
+training <- training[ , -c(1:7)] #get rid of unimportant columns (user and time information, etc.)
+
+#convert all but "classe" to numeric
+cols = 1:152
+training[ , cols] <- lapply(cols, function(x) as.numeric(as.character(training[ , x]))) 
+
+#repeat above process on testing set
+testing <- testing[ , -c(1:7)]
+
+#convert all but "problem_id" to numeric
+testing[ , cols] <- lapply(cols, function(x) as.numeric(as.character(testing[ , x])))
+
+#find the columns that contain a large number of NAs, these will be dropped when building predictive models
+NAcols <- which(colSums(is.na(training)) >= 0.95 * nrow(training))
+```
+
+```{r Impute NAs (optional), echo = FALSE}
+#preProc <- preProcess(method = "bagImpute", training[, -153])
+#training[ , -153] <- predict(preProc, training[, -153])
+#testing[ , -153] <- predict(preProc, testing[, -153])
+```
+
+```{r Correlation matrix (optional), echo = FALSE}
+#c <- correlate(training)
+```
+
+```{r Feature Plot (optional), echo = FALSE}
+p <- "(?=.*avg)(?=.*belt)"
+p1 <- featurePlot(x = training[ , grepl(p, names(training), perl = TRUE)],
+                  y = training$classe,
+                  plot = "pairs")
+
+p <- "(?=.*avg)(?=.*_arm)"
+p2 <- featurePlot(x = training[ , grepl(p, names(training), perl = TRUE)],
+                  y = training$classe,
+                  plot = "pairs")
+
+p <- "(?=.*avg)(?=.*forearm)"
+p3 <- featurePlot(x = training[ , grepl(p, names(training), perl = TRUE)],
+                  y = training$classe,
+                  plot = "pairs")
+
+p <- "(?=.*avg)(?=.*dumbbell)"
+p4 <- featurePlot(x = training[ , grepl(p, names(training), perl = TRUE)],
+                  y = training$classe,
+                  plot = "pairs")
+```
+
+### Cross-Validation
+
+The following 10-fold cross-validation method was applied to the training set:
+
+```{r CV}
+fitControl <- trainControl(method = "repeatedcv", number = 10, repeats = 10)
+```
+
+### Build Tree Model and Estimate Out of Sample Error
+
+A decision tree was then used to train a predictive model.
+
+```{r Decision Tree, cache = TRUE}
+set.seed(333)
+mTree <- train(classe ~ ., data = training[ , -NAcols], method = "rpart", trControl = fitControl)
+mTree
+mTree$finalModel
+fancyRpartPlot(mTree$finalModel)
+```
+
+Therefore, the out of sample error is estimated to be less than 0.506 accuracy.
+
+### Test Tree Predictions
+
+The decision tree model was used to make predictions on the test data. These predictions are not expected to be very accurate given the above out of sample error estimate.
+
+```{r DT predictions}
+pred <- predict(mTree, testing, na.action = na.pass)
+```
+
+### Build Random Forests Model and Estimate Out of Sample Error
+
+A Random Forests model was built to exploit a multitude of decision trees, bagging, and randomized feature selection. According to [http://www.stat.berkeley.edu/~breiman/RandomForests/cc_home.htm](http://www.stat.berkeley.edu/~breiman/RandomForests/cc_home.htm), cross-validation and a separate test set are not required to get an unbiased estimate of the out of sample error because it is already estimated internally by the algorithm. The detailed reasoning for this is given on the website. The rfcv function can be used to show the cross-validated prediction performance of models with sequentially reduced feature sets [http://cran.r-project.org/web/packages/randomForest/randomForest.pdf](http://cran.r-project.org/web/packages/randomForest/randomForest.pdf).
+
+```{r Random Forests, cache = TRUE}
+result <- rfcv(training[ , -NAcols][ , 1:52], training[ , -NAcols]$classe)
+with(result, plot(n.var, error.cv, log = "x", type = "o", lwd = 1, pch = 19))
+result$error.cv
+```
+
+In this plot, it can be seen how cross-validation with rfcv achieves decreasing error as variables are added to the model. There is never a point at which the CV error increases.
+
+```{r RF2}
+mRF <- randomForest(classe ~ ., data = training[ , -NAcols])
+mRF
+plot(mRF, log = "y")
+```
+
+The out of sample error rate is estimated internally to be 0.29%.
+
+### Test RF Predictions
+
+Finally, the Random Forests model was used to make predictions about the quality of the weight lifting exercise examples in the test set. These predictions are expected to be a great deal more accurate than those for the decision tree model.
+
+```{r RF predictions}
+pred <- predict(mRF, testing, na.action = na.pass) #answers not printed
+```
+
+In conclusion, the power of Random Forests over singular cross-validated decision trees has been demonstrated in this case. The expected recognition performance achieved by the final model is fairly close to the one given in the paper cited below.
+
+### Citation
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.

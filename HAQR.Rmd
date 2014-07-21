@@ -84,7 +84,7 @@ fitControl <- trainControl(method = "repeatedcv", number = 10, repeats = 10)
 
 A decision tree was then used to train a predictive model.
 
-```{r Decision Tree, cache = TRUE}
+```{r Decision Tree, cache = TRUE, message = FALSE}
 set.seed(333)
 mTree <- train(classe ~ ., data = training[ , -NAcols], method = "rpart", trControl = fitControl)
 mTree
@@ -115,12 +115,13 @@ result$error.cv
 In this plot, it can be seen how cross-validation with rfcv achieves decreasing error as variables are added to the model. There is never a point at which the CV error increases.
 
 ```{r RF2}
+set.seed(444)
 mRF <- randomForest(classe ~ ., data = training[ , -NAcols])
 mRF
 plot(mRF, log = "y")
 ```
 
-The out of sample error rate is estimated internally to be 0.29%.
+The out of sample error rate is estimated internally to be 0.27%.
 
 ### Test RF Predictions
 
